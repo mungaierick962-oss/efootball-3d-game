@@ -1,0 +1,165 @@
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
+
+let player, ball, opponent, score = 0, timer = 60;
+let keys = {};
+let lastSkillKey = '', skillCooldown = false, lastShotKey = '', shotCooldown = false;
+
+const createScene = () => {
+    const scene = new BABYLON.Scene(engine);
+
+    // Camera setup
+    const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, Math.PI/3, 50, BABYLON.Vector3.Zero(), scene);
+    camera.attachControl(canvas, true);
+
+    // Lighting
+    new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+    // Ground (football pitch)
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:50, height:100}, scene);
+    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+    groundMat.diffuseColor = new BABYLON.Color3(0, 0.7, 0);
+    ground.material = groundMat;
+
+    // Player
+    player = BABYLON.MeshBuilder.CreateBox("player", {height:3, width:1, depth:1}, scene);
+    player.position.z = -20;
+    player.position.y = 1.5;
+    player.speed = 0.5;
+    player.shotPower = 2;
+
+    // Opponent
+    opponent = BABYLON.MeshBuilder.CreateBox("opponent", {height:3, width:1, depth:1}, scene);
+    opponent.position.z = 20;
+    opponent.position.y = 1.5;
+    opponent.material = new BABYLON.StandardMaterial("opMat", scene);
+    opponent.material.diffuseColor = new BABYLON.Color3(1,0,0);
+
+    // Ball
+    ball = BABYLON.MeshBuilder.CreateSphere("ball", {diameter:1.5}, scene);
+    ball.position.y = 0.75;
+
+    // UI
+    const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    const scoreText = new BABYLON.GUI.TextBlock();
+    scoreText.text = "Score: 0";
+    scoreText.color = "white";
+    scoreText.fontSize = 24;
+    scoreText.top = "-45%";
+    scoreText.left = "-40%";
+    advancedTexture.addControl(scoreText);
+
+    const timerText = new BABYLON.GUI.TextBlock();
+    timerText.text = "Time: 60";
+    timerText.color = "white";
+    timerText.fontSize = 24;
+    timerText.top = "-45%";
+    timerText.left = "40%";
+    advancedTexture.addControl(timerText);
+
+    // Touch joystick for mobile movement support
+    const joystick = new BABYLON.GUI.VirtualJoystick(true);
+    joystick.setJoystickSensibility(0.1);
+
+    // Keyboard controls
+    window.addEventListener("keydown", e => {
+        keys[e.key.toLowerCase()] = true;
+    });
+
+    window.addEventListener("keyup", e => {
+        keys[e.key.toLowerCase()] = false;
+        // Reset skill and shot cooldowns on keyup
+        if (
+            ["q", "w", "e", "r", "t", "y", "u"].includes(e.key.toLowerCase())
+        ) skillCooldown = false;
+        if (
+            ["1", "2", "3", "4"].includes(e.key)
+        ) shotCooldown = false;
+    });
+
+    // ----- Skill Moves -----
+    const performSkill = (skill) => {
+        if (skillCooldown) return;
+        skillCooldown = true;
+        switch (skill) {
+            case "stepover": player.rotation.y += Math.PI/4; break;
+            case "chopturn": player.rotation.y -= Math.PI/4; break;
+            case "marseille": player.position.x += 1; player.position.z += 0.5; break;
+            case "flipflap": player.position.x -= 1; player.position.z += 0.5; break;
+            case "rabona": ball.position.x += 1; break;
+            case "doubletouch": ball.position.z += 1; break;
+            case "nolook": ball.position.x -= 1; break;
+        }
+    };
+
+    // ----- Shooting -----
+    const shootBall = (type) => {
+        if (shotCooldown) return;
+        shotCooldown = true;
+        let dir = ball.position.subtract(player.position).normalize();
+        switch (type) {
+            case "normal": ball.position.addInPlace(dir.scale(player.shotPower)); break;
+            case "dip": ball.position.addInPlace(dir.scale(player.shotPower*0.8)); ball.position.y += 0.5; break;
+            case "finesse": ball.position.addInPlace(dir.scale(player.shotPower)); ball.position.x += 0.5; break;
+            case "stunning": ball.position.addInPlace(dir.scale(player.shotPower*1.5)); ball.position.y += 0.3; break;
+        }
+    };
+
+    // ----- Main Game Loop -----
+    scene.onBeforeRenderObservable.add(() => {
+        // Movement with keyboard
+        if (keys["arrowup"]) player.position.z += player.speed;
+        if (keys["arrowdown"]) player.position.z -= player.speed;
+        if (keys["arrowleft"]) player.position.x -= player.speed;
+        if (keys["arrowright"]) player.position.x += player.speed;
+
+        // Mobile joystick
+        if (joystick.pressed) {
+            player.position.x += joystick.deltaPosition.x * 0.2;
+            player.position.z += -joystick.deltaPosition.y * 0.2;
+        }
+
+        // --- Skill keys (debounced) ---
+        if (keys["q"] && lastSkillKey !== "q") performSkill("stepover");
+        if (keys["w"] && lastSkillKey !== "w") performSkill("chopturn");
+        if (keys["e"] && lastSkillKey !== "e") performSkill("marseille");
+        if (keys["r"] && lastSkillKey !== "r") performSkill("flipflap");
+        if (keys["t"] && lastSkillKey !== "t") performSkill("rabona");
+        if (keys["y"] && lastSkillKey !== "y") performSkill("doubletouch");
+        if (keys["u"] && lastSkillKey !== "u") performSkill("nolook");
+        lastSkillKey = ["q", "w", "e", "r", "t", "y", "u"].find(k => keys[k]) || '';
+
+        // --- Shot keys (debounced) ---
+        if (keys["1"] && lastShotKey !== "1") shootBall("normal");
+        if (keys["2"] && lastShotKey !== "2") shootBall("dip");
+        if (keys["3"] && lastShotKey !== "3") shootBall("finesse");
+        if (keys["4"] && lastShotKey !== "4") shootBall("stunning");
+        lastShotKey = ["1", "2", "3", "4"].find(k => keys[k]) || '';
+
+        // Ball collision
+        if (player.intersectsMesh(ball, false)) {
+            const dir = ball.position.subtract(player.position).normalize();
+            ball.position.addInPlace(dir.scale(0.5));
+        }
+
+        // Opponent chases ball
+        const opponentDir = ball.position.subtract(opponent.position).normalize();
+        opponent.position.addInPlace(opponentDir.scale(0.2));
+
+        // Timer
+        if (engine.getDeltaTime()%1000<16 && timer > 0) timer--;
+        timerText.text = "Time: " + timer;
+
+        // Score
+        if (ball.position.z > 45) {
+            score++; scoreText.text = "Score: " + score;
+            ball.position = new BABYLON.Vector3(0,0.75,0);
+        }
+    });
+
+    return scene;
+};
+
+const scene = createScene();
+engine.runRenderLoop(() => scene.render());
+window.addEventListener("resize", () => engine.resize());
